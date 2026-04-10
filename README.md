@@ -40,14 +40,16 @@ pip install pillow scipy torch torchvision transformers
 
 如果需要使用 PETA 資料集處理功能，請：
 
-1. 前往 [PETA Dataset](http://mmlab.ie.cuhk.edu.hk/projects/PETA.html) 下載資料集
-2. 將 `PETA.mat` 和圖片資料放到 `data/PETA/` 目錄下
+1. 從 [Dropbox 下載 PETA 資料夾](https://www.dropbox.com/scl/fo/boipdmufnsnsvmfdle5um/AMbwWDNnlBWnVbnxxv4VcFM?rlkey=ftwdjxqo5l1dfnshy97ej8kka&e=1&st=ropvnxnj&dl=0)
+2. 將下載的 `PETA` 資料夾放到 `data/` 目錄下
 3. 確保目錄結構如下：
    ```
    data/PETA/
    ├── PETA.mat
    └── images/  (或其他包含圖片的資料夾)
    ```
+
+資料來源：[OpenPAR GitHub Repository](https://github.com/Event-AHU/OpenPAR)
 
 ## 使用方式
 
