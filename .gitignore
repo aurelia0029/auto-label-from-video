@@ -18,7 +18,13 @@ env/
 
 # PETA Dataset (large files - download separately)
 PETA/
-data/PETA/
+data/PETA
+data/extracted_frames
+data/labeled_output
+
+# Dataset
+CCTV_01/
+MOT17/
 
 # Model cache
 .cache/
