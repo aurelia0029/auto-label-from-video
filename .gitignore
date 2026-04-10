@@ -21,6 +21,7 @@ PETA/
 data/PETA
 data/extracted_frames
 data/labeled_output
+data/uploads
 
 # Dataset
 CCTV_01/

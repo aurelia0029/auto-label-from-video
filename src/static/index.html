@@ -1,0 +1,863 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Auto Label from Video</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #f1f5f9; color: #334155;
+      display: flex; height: 100vh; overflow: hidden;
+    }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 300px; min-width: 300px; background: #1e293b; color: #cbd5e1;
+      display: flex; flex-direction: column; padding: 20px 16px;
+      overflow-y: auto; gap: 18px;
+    }
+    #sidebar h1 { font-size: 15px; font-weight: 700; color: #f1f5f9; }
+    .section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: #64748b; margin-bottom: 8px; }
+    #drop-zone {
+      border: 2px dashed #334155; border-radius: 8px; padding: 20px 12px;
+      text-align: center; cursor: pointer; transition: border-color .2s, background .2s;
+      font-size: 13px; color: #94a3b8;
+    }
+    #drop-zone:hover, #drop-zone.dragover { border-color: #3b82f6; background: #1e3a5f22; color: #93c5fd; }
+    #drop-zone .icon { font-size: 24px; margin-bottom: 6px; }
+    #drop-zone.uploaded { border-color: #22c55e; color: #86efac; }
+    label { display: block; font-size: 12px; color: #94a3b8; margin-bottom: 4px; }
+    input[type="text"], input[type="number"] {
+      width: 100%; background: #0f172a; border: 1px solid #334155;
+      border-radius: 6px; padding: 7px 10px; color: #e2e8f0; font-size: 13px; outline: none; transition: border-color .15s;
+    }
+    input:focus { border-color: #3b82f6; }
+    #neg-labels-list { display: flex; flex-direction: column; gap: 6px; }
+    .neg-label-row { display: flex; gap: 6px; align-items: center; }
+    .neg-label-row input { flex: 1; }
+    .btn-remove { background: #1e293b; border: 1px solid #334155; border-radius: 6px; color: #f87171; width: 28px; height: 28px; cursor: pointer; font-size: 14px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+    .btn-remove:hover { background: #7f1d1d33; border-color: #f87171; }
+    #btn-add-neg { background: none; border: 1px dashed #334155; border-radius: 6px; color: #64748b; font-size: 12px; padding: 6px; cursor: pointer; width: 100%; transition: border-color .15s, color .15s; margin-top: 6px; }
+    #btn-add-neg:hover { border-color: #3b82f6; color: #93c5fd; }
+    .slider-row { display: flex; align-items: center; gap: 10px; }
+    .slider-row input[type="range"] { flex: 1; accent-color: #3b82f6; padding: 0; background: none; border: none; cursor: pointer; }
+    .slider-val { font-size: 12px; color: #e2e8f0; min-width: 36px; text-align: right; }
+    #btn-run { background: #3b82f6; color: white; border: none; border-radius: 8px; padding: 11px; font-size: 14px; font-weight: 600; cursor: pointer; width: 100%; transition: background .15s; }
+    #btn-run:hover:not(:disabled) { background: #2563eb; }
+    #btn-run:disabled { background: #334155; color: #64748b; cursor: not-allowed; }
+    .divider { height: 1px; background: #1e3a5f44; }
+
+    /* ── Topbar ── */
+    #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    #topbar { background: white; border-bottom: 1px solid #e2e8f0; padding: 10px 20px; display: flex; align-items: center; gap: 12px; min-height: 52px; }
+    #progress-wrap { flex: 1; display: none; flex-direction: column; gap: 5px; }
+    #progress-msg { font-size: 13px; color: #475569; }
+    #progress-bar-bg { background: #e2e8f0; border-radius: 4px; height: 5px; overflow: hidden; }
+    #progress-bar { background: #3b82f6; height: 100%; width: 0%; transition: width .3s ease; border-radius: 4px; }
+    #status-badge { font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 20px; display: none; white-space: nowrap; }
+    .badge-done    { background: #dcfce7; color: #15803d; }
+    .badge-error   { background: #fee2e2; color: #b91c1c; }
+    .badge-running { background: #dbeafe; color: #1d4ed8; }
+
+    /* Show-confidence toggle */
+    .conf-toggle-wrap { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #475569; white-space: nowrap; }
+    .conf-toggle-wrap input[type="checkbox"] { width: 15px; height: 15px; accent-color: #3b82f6; cursor: pointer; }
+
+    #btn-download { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 7px; padding: 6px 14px; font-size: 13px; font-weight: 600; color: #475569; cursor: pointer; display: none; text-decoration: none; white-space: nowrap; }
+    #btn-download:hover { background: #f1f5f9; border-color: #cbd5e1; }
+
+    /* ── Results layout ── */
+    #results { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+    .category-panel { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #e2e8f0; }
+    .category-panel:last-child { border-right: none; }
+
+    .category-header { padding: 8px 14px; background: white; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .category-name { font-size: 14px; font-weight: 700; flex: 1; }
+    .category-count { background: #f1f5f9; color: #64748b; font-size: 12px; font-weight: 600; padding: 2px 9px; border-radius: 20px; }
+    #pos-header .category-name { color: #15803d; }
+    #neg-header .category-name { color: #b45309; }
+
+    /* Zoom controls */
+    .zoom-controls { display: flex; align-items: center; gap: 4px; }
+    .btn-zoom { background: #f1f5f9; border: 1px solid #e2e8f0; border-radius: 5px; width: 24px; height: 24px; font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center; color: #475569; padding: 0; }
+    .btn-zoom:hover { background: #e2e8f0; }
+    .zoom-val { font-size: 11px; color: #94a3b8; min-width: 32px; text-align: center; }
+
+    .btn-header { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; padding: 3px 9px; font-size: 12px; color: #475569; cursor: pointer; }
+    .btn-header:hover { background: #f1f5f9; }
+
+    /* Selection bar */
+    .sel-bar { display: none; align-items: center; gap: 8px; padding: 7px 14px; background: #eff6ff; border-bottom: 1px solid #bfdbfe; }
+    .sel-bar-count { font-size: 13px; font-weight: 600; color: #1d4ed8; flex: 1; }
+    .btn-bulk { border: none; border-radius: 6px; padding: 4px 11px; font-size: 12px; font-weight: 600; cursor: pointer; }
+    .btn-bulk-move   { background: #dbeafe; color: #1d4ed8; }
+    .btn-bulk-move:hover   { background: #bfdbfe; }
+    .btn-bulk-delete { background: #fee2e2; color: #b91c1c; }
+    .btn-bulk-delete:hover { background: #fecaca; }
+    .btn-bulk-clear  { background: none; color: #64748b; border: 1px solid #e2e8f0; }
+    .btn-bulk-clear:hover  { background: #f1f5f9; }
+
+    /* ── Image grid ── */
+    .image-grid {
+      flex: 1; overflow-y: auto; padding: 14px;
+      display: flex; flex-wrap: wrap; align-content: flex-start; gap: 10px;
+      position: relative; user-select: none;
+      --card-w: 130px;
+    }
+
+    .img-card {
+      width: var(--card-w); background: white; border-radius: 8px;
+      overflow: hidden; border: 2px solid #e2e8f0;
+      transition: box-shadow .15s, transform .12s, border-color .1s;
+      cursor: pointer; flex-shrink: 0;
+    }
+    .img-card:hover { box-shadow: 0 4px 14px rgba(0,0,0,.1); transform: translateY(-2px); }
+    .img-card.selected   { border-color: #3b82f6; box-shadow: 0 0 0 2px #93c5fd; }
+    .img-card.drag-hover { border-color: #93c5fd; background: #eff6ff; }
+
+    /* Card image area */
+    .card-img-wrap { position: relative; overflow: hidden; }
+    .img-card img {
+      width: 100%; height: calc(var(--card-w) * 0.7);
+      object-fit: cover; display: block; pointer-events: none;
+      transition: height .15s;
+    }
+
+    /* Checkbox overlay */
+    .card-check {
+      position: absolute; top: 5px; left: 5px;
+      width: 22px; height: 22px; border-radius: 5px;
+      border: 2px solid rgba(255,255,255,.85); background: rgba(0,0,0,.28);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 700; color: transparent;
+      transition: background .1s, border-color .1s, color .1s;
+      pointer-events: none; z-index: 2;
+    }
+    .img-card.selected   .card-check,
+    .img-card.drag-hover .card-check { background: #3b82f6; border-color: #3b82f6; color: white; }
+
+    /* Confidence badge overlay */
+    .conf-badge {
+      position: absolute; bottom: 0; left: 0; right: 0;
+      background: rgba(0,0,0,.55); color: white;
+      font-size: 11px; font-weight: 600; text-align: center; padding: 3px 0;
+      display: none; pointer-events: none;
+    }
+    body.show-conf .conf-badge { display: block; }
+
+    /* Card body */
+    .img-card-body { padding: 5px 7px 7px; }
+    .img-filename { font-size: 10px; color: #94a3b8; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 5px; }
+    .img-actions { display: flex; gap: 5px; }
+    .btn-action { flex: 1; border: none; border-radius: 5px; padding: 4px 0; font-size: 11px; font-weight: 600; cursor: pointer; }
+    .btn-move   { background: #dbeafe; color: #1d4ed8; }
+    .btn-move:hover   { background: #bfdbfe; }
+    .btn-delete { background: #fee2e2; color: #b91c1c; }
+    .btn-delete:hover { background: #fecaca; }
+
+    /* Drag rubber-band overlay */
+    #drag-overlay {
+      position: fixed; pointer-events: none; z-index: 9999;
+      border: 1.5px solid #3b82f6; background: rgba(59,130,246,.08);
+      border-radius: 3px; display: none;
+    }
+
+    .empty-state { width: 100%; text-align: center; color: #94a3b8; font-size: 13px; padding: 40px 0; }
+
+    /* ── Lightbox ── */
+    #lightbox {
+      display: none; position: fixed; inset: 0; z-index: 10000;
+      background: rgba(0,0,0,.82); align-items: center; justify-content: center;
+    }
+    #lightbox.open { display: flex; }
+
+    .lb-panel {
+      background: white; border-radius: 12px; overflow: hidden;
+      max-width: 90vw; max-height: 92vh;
+      display: flex; flex-direction: column;
+      box-shadow: 0 24px 64px rgba(0,0,0,.5);
+      min-width: 320px;
+    }
+
+    .lb-img-wrap {
+      position: relative; background: #0f172a; overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      max-height: 70vh;
+    }
+    .lb-img-wrap img { max-width: 100%; max-height: 70vh; object-fit: contain; display: block; }
+
+    /* Prev / Next */
+    .lb-nav {
+      position: absolute; top: 50%; transform: translateY(-50%);
+      background: rgba(255,255,255,.15); border: none; color: white;
+      width: 40px; height: 40px; border-radius: 50%; font-size: 18px;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      transition: background .15s;
+    }
+    .lb-nav:hover { background: rgba(255,255,255,.3); }
+    #lb-prev { left: 10px; }
+    #lb-next { right: 10px; }
+    .lb-nav:disabled { opacity: .25; cursor: default; }
+
+    .lb-info {
+      padding: 14px 18px; display: flex; flex-direction: column; gap: 6px;
+    }
+    .lb-filename { font-size: 14px; font-weight: 700; color: #1e293b; word-break: break-all; }
+    .lb-meta { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+    .lb-category { font-size: 13px; font-weight: 600; }
+    .lb-category.pos { color: #15803d; }
+    .lb-category.neg { color: #b45309; }
+    .lb-conf { font-size: 13px; color: #475569; }
+    .lb-counter { font-size: 12px; color: #94a3b8; margin-left: auto; }
+
+    .lb-actions { display: flex; gap: 8px; padding: 0 18px 16px; }
+    .lb-btn { flex: 1; padding: 8px; border: none; border-radius: 7px; font-size: 13px; font-weight: 600; cursor: pointer; }
+    .lb-btn-move   { background: #dbeafe; color: #1d4ed8; }
+    .lb-btn-move:hover   { background: #bfdbfe; }
+    .lb-btn-delete { background: #fee2e2; color: #b91c1c; }
+    .lb-btn-delete:hover { background: #fecaca; }
+    .lb-btn-close  { background: #f1f5f9; color: #475569; }
+    .lb-btn-close:hover  { background: #e2e8f0; }
+  </style>
+</head>
+<body>
+
+<div id="drag-overlay"></div>
+
+<!-- ── Lightbox ── -->
+<div id="lightbox" onclick="lbClickOutside(event)">
+  <div class="lb-panel" onclick="event.stopPropagation()">
+    <div class="lb-img-wrap">
+      <img id="lb-img" src="" alt="">
+      <button class="lb-nav" id="lb-prev" onclick="lbNav(-1)">&#8592;</button>
+      <button class="lb-nav" id="lb-next" onclick="lbNav(+1)">&#8594;</button>
+    </div>
+    <div class="lb-info">
+      <div class="lb-filename" id="lb-filename"></div>
+      <div class="lb-meta">
+        <span class="lb-category" id="lb-category"></span>
+        <span class="lb-conf"    id="lb-conf"></span>
+        <span class="lb-counter" id="lb-counter"></span>
+      </div>
+    </div>
+    <div class="lb-actions">
+      <button class="lb-btn lb-btn-move"   id="lb-btn-move"   onclick="lbMove()">移到另一類</button>
+      <button class="lb-btn lb-btn-delete" id="lb-btn-delete" onclick="lbDelete()">刪除</button>
+      <button class="lb-btn lb-btn-close"  onclick="closeLightbox()">關閉</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Sidebar ── -->
+<aside id="sidebar">
+  <h1>Auto Label from Video</h1>
+
+  <div>
+    <div class="section-title">影片來源</div>
+    <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+      <div class="icon">🎬</div>
+      <div id="drop-text">點擊或拖曳影片到這裡</div>
+    </div>
+    <input type="file" id="file-input" accept="video/*" style="display:none">
+  </div>
+
+  <div class="divider"></div>
+
+  <div>
+    <div class="section-title">分類標籤</div>
+    <label>Positive（想找的目標）</label>
+    <input type="text" id="positive-label" value="a person wearing red clothes">
+    <div style="margin-top:12px">
+      <label>Negative（干擾項）</label>
+      <div id="neg-labels-list">
+        <div class="neg-label-row">
+          <input type="text" value="a person not wearing red clothes">
+          <button class="btn-remove" onclick="removeNegLabel(this)">×</button>
+        </div>
+        <div class="neg-label-row">
+          <input type="text" value="a red object or vehicle">
+          <button class="btn-remove" onclick="removeNegLabel(this)">×</button>
+        </div>
+        <div class="neg-label-row">
+          <input type="text" value="a street background">
+          <button class="btn-remove" onclick="removeNegLabel(this)">×</button>
+        </div>
+      </div>
+      <button id="btn-add-neg" onclick="addNegLabel()">＋ 新增干擾項</button>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div>
+    <div class="section-title">參數設定</div>
+    <label>Frame 抽樣間隔</label>
+    <div class="slider-row">
+      <input type="range" id="frame-interval" min="1" max="60" value="10"
+             oninput="document.getElementById('fi-val').textContent=this.value">
+      <span class="slider-val" id="fi-val">10</span>
+    </div>
+    <label style="margin-top:10px">最多抽取張數（0 = 不限）</label>
+    <input type="number" id="max-frames" value="200" min="0">
+    <label style="margin-top:10px">信心門檻</label>
+    <div class="slider-row">
+      <input type="range" id="threshold" min="0" max="100" value="55"
+             oninput="document.getElementById('th-val').textContent=(this.value/100).toFixed(2)">
+      <span class="slider-val" id="th-val">0.55</span>
+    </div>
+    <label style="margin-top:10px">Positive 資料夾名稱</label>
+    <input type="text" id="pos-folder" value="red">
+    <label style="margin-top:8px">Negative 資料夾名稱</label>
+    <input type="text" id="neg-folder" value="non_red">
+  </div>
+
+  <div style="margin-top:auto; padding-top:12px">
+    <button id="btn-run" onclick="runPipeline()" disabled>先上傳影片</button>
+  </div>
+</aside>
+
+<!-- ── Main ── -->
+<main id="main">
+  <div id="topbar">
+    <span id="status-badge"></span>
+    <div id="progress-wrap">
+      <div id="progress-msg">準備中...</div>
+      <div id="progress-bar-bg"><div id="progress-bar"></div></div>
+    </div>
+    <label class="conf-toggle-wrap">
+      <input type="checkbox" id="chk-conf" onchange="toggleConfidence(this.checked)">
+      顯示信心值
+    </label>
+    <a id="btn-download" href="/api/download" download="labeled_output.zip">⬇ 下載 ZIP</a>
+  </div>
+
+  <div id="results">
+    <!-- Positive panel -->
+    <div class="category-panel">
+      <div class="category-header" id="pos-header">
+        <span class="category-name" id="pos-title">Positive</span>
+        <span class="category-count" id="pos-count">0</span>
+        <div class="zoom-controls">
+          <button class="btn-zoom" onclick="setZoom('pos',-20)">−</button>
+          <span class="zoom-val" id="pos-zoom-val">130</span>
+          <button class="btn-zoom" onclick="setZoom('pos',+20)">＋</button>
+        </div>
+        <button class="btn-header" onclick="selectAll('pos')">全選</button>
+      </div>
+      <div class="sel-bar" id="pos-sel-bar">
+        <span class="sel-bar-count" id="pos-sel-count"></span>
+        <button class="btn-bulk btn-bulk-move"   onclick="bulkMove('pos')">移動</button>
+        <button class="btn-bulk btn-bulk-delete" onclick="bulkDelete('pos')">刪除</button>
+        <button class="btn-bulk btn-bulk-clear"  onclick="clearSelection('pos')">取消</button>
+      </div>
+      <div class="image-grid" id="pos-grid">
+        <div class="empty-state">執行 pipeline 後結果會顯示在這裡</div>
+      </div>
+    </div>
+
+    <!-- Negative panel -->
+    <div class="category-panel">
+      <div class="category-header" id="neg-header">
+        <span class="category-name" id="neg-title">Negative</span>
+        <span class="category-count" id="neg-count">0</span>
+        <div class="zoom-controls">
+          <button class="btn-zoom" onclick="setZoom('neg',-20)">−</button>
+          <span class="zoom-val" id="neg-zoom-val">130</span>
+          <button class="btn-zoom" onclick="setZoom('neg',+20)">＋</button>
+        </div>
+        <button class="btn-header" onclick="selectAll('neg')">全選</button>
+      </div>
+      <div class="sel-bar" id="neg-sel-bar">
+        <span class="sel-bar-count" id="neg-sel-count"></span>
+        <button class="btn-bulk btn-bulk-move"   onclick="bulkMove('neg')">移動</button>
+        <button class="btn-bulk btn-bulk-delete" onclick="bulkDelete('neg')">刪除</button>
+        <button class="btn-bulk btn-bulk-clear"  onclick="clearSelection('neg')">取消</button>
+      </div>
+      <div class="image-grid" id="neg-grid">
+        <div class="empty-state">執行 pipeline 後結果會顯示在這裡</div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+  let uploadedPath = null;
+  let pollTimer    = null;
+  let posFolder    = 'positive';
+  let negFolder    = 'negative';
+  let showConf     = false;
+
+  const selected       = { pos: new Set(), neg: new Set() };
+  const lastClickIndex = { pos: -1, neg: -1 };
+  const zoomSize       = { pos: 130, neg: 130 };
+
+  // confidence data: "folder/filename" -> float
+  const confData = {};
+
+  // ── File upload ──────────────────────────────────────────
+
+  const dropZone  = document.getElementById('drop-zone');
+  const fileInput = document.getElementById('file-input');
+
+  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files[0]) uploadFile(e.dataTransfer.files[0]);
+  });
+  fileInput.addEventListener('change', () => { if (fileInput.files[0]) uploadFile(fileInput.files[0]); });
+
+  async function uploadFile(file) {
+    document.getElementById('drop-text').textContent = `上傳中：${file.name}...`;
+    dropZone.classList.remove('uploaded');
+    const fd = new FormData();
+    fd.append('file', file);
+    try {
+      const data = await fetch('/api/upload', { method: 'POST', body: fd }).then(r => r.json());
+      uploadedPath = data.path;
+      dropZone.classList.add('uploaded');
+      document.getElementById('drop-text').textContent = `✓ ${file.name}`;
+      const btn = document.getElementById('btn-run');
+      btn.disabled = false; btn.textContent = '執行分類';
+    } catch (err) {
+      document.getElementById('drop-text').textContent = `上傳失敗：${err.message}`;
+    }
+  }
+
+  // ── Labels ───────────────────────────────────────────────
+
+  function addNegLabel(value = '') {
+    const list = document.getElementById('neg-labels-list');
+    const row  = document.createElement('div');
+    row.className = 'neg-label-row';
+    row.innerHTML = `<input type="text" value="${value}">
+      <button class="btn-remove" onclick="removeNegLabel(this)">×</button>`;
+    list.appendChild(row);
+    row.querySelector('input').focus();
+  }
+  function removeNegLabel(btn) { btn.closest('.neg-label-row').remove(); }
+  function getNegLabels() {
+    return [...document.querySelectorAll('#neg-labels-list input')].map(i => i.value.trim()).filter(Boolean);
+  }
+
+  // ── Zoom ─────────────────────────────────────────────────
+
+  function setZoom(side, delta) {
+    zoomSize[side] = Math.min(280, Math.max(80, zoomSize[side] + delta));
+    const w = zoomSize[side];
+    document.getElementById(`${side}-grid`).style.setProperty('--card-w', w + 'px');
+    document.getElementById(`${side}-zoom-val`).textContent = w;
+  }
+
+  // ── Confidence toggle ─────────────────────────────────────
+
+  function toggleConfidence(on) {
+    showConf = on;
+    document.body.classList.toggle('show-conf', on);
+  }
+
+  // ── Run pipeline ─────────────────────────────────────────
+
+  async function runPipeline() {
+    if (!uploadedPath) return;
+    const cfg = {
+      video_path:           uploadedPath,
+      positive_label:       document.getElementById('positive-label').value.trim(),
+      negative_labels:      getNegLabels(),
+      positive_folder:      document.getElementById('pos-folder').value.trim() || 'positive',
+      negative_folder:      document.getElementById('neg-folder').value.trim() || 'negative',
+      frame_interval:       parseInt(document.getElementById('frame-interval').value),
+      max_frames:           parseInt(document.getElementById('max-frames').value),
+      confidence_threshold: parseInt(document.getElementById('threshold').value) / 100,
+    };
+    posFolder = cfg.positive_folder;
+    negFolder = cfg.negative_folder;
+    updateFolderLabels();
+
+    const btn = document.getElementById('btn-run');
+    btn.disabled = true; btn.textContent = '執行中...';
+    document.getElementById('btn-download').style.display = 'none';
+
+    try {
+      await fetch('/api/run', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(cfg),
+      });
+      startPolling();
+    } catch (err) {
+      showBadge('error', `啟動失敗：${err.message}`);
+      btn.disabled = false; btn.textContent = '執行分類';
+    }
+  }
+
+  // ── Polling ──────────────────────────────────────────────
+
+  function startPolling() {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(async () => {
+      try {
+        const data = await fetch('/api/status').then(r => r.json());
+        if (['extracting', 'classifying'].includes(data.status)) {
+          document.getElementById('progress-wrap').style.display = 'flex';
+          showBadge('running', data.status === 'extracting' ? '抽取 frames' : '分類中');
+          document.getElementById('progress-msg').textContent = data.message;
+          const pct = data.total > 0 ? (data.progress / data.total * 100) : 0;
+          document.getElementById('progress-bar').style.width = pct + '%';
+        }
+        if (data.status === 'done') {
+          clearInterval(pollTimer);
+          await loadResults();
+          showBadge('done', data.message);
+          document.getElementById('btn-download').style.display = 'inline-block';
+          const btn = document.getElementById('btn-run');
+          btn.disabled = false; btn.textContent = '重新執行';
+        } else if (data.status === 'error') {
+          clearInterval(pollTimer);
+          showBadge('error', data.message);
+          const btn = document.getElementById('btn-run');
+          btn.disabled = false; btn.textContent = '重新執行';
+        }
+      } catch (e) { /* ignore */ }
+    }, 800);
+  }
+
+  function showBadge(type, text) {
+    const b = document.getElementById('status-badge');
+    b.style.display = 'inline-block'; b.className = `badge-${type}`; b.textContent = text;
+  }
+
+  // ── Results ──────────────────────────────────────────────
+
+  async function loadResults() {
+    const data = await fetch('/api/results').then(r => r.json());
+    posFolder = data.positive.folder;
+    negFolder = data.negative.folder;
+    updateFolderLabels();
+    selected.pos.clear(); selected.neg.clear();
+    lastClickIndex.pos = -1; lastClickIndex.neg = -1;
+
+    // Cache confidence data
+    for (const item of data.positive.images)
+      if (item.confidence != null) confData[`${posFolder}/${item.filename}`] = item.confidence;
+    for (const item of data.negative.images)
+      if (item.confidence != null) confData[`${negFolder}/${item.filename}`] = item.confidence;
+
+    renderGrid('pos-grid', 'pos-count', data.positive.images,  posFolder, negFolder);
+    renderGrid('neg-grid', 'neg-count', data.negative.images, negFolder, posFolder);
+    updateSelectionBar('pos'); updateSelectionBar('neg');
+  }
+
+  function updateFolderLabels() {
+    document.getElementById('pos-title').textContent = posFolder;
+    document.getElementById('neg-title').textContent = negFolder;
+    document.querySelector('#pos-sel-bar .btn-bulk-move').textContent = `移到 ${negFolder}`;
+    document.querySelector('#neg-sel-bar .btn-bulk-move').textContent = `移到 ${posFolder}`;
+  }
+
+  function renderGrid(gridId, countId, items, thisFolder, otherFolder) {
+    document.getElementById(countId).textContent = items.length;
+    const grid = document.getElementById(gridId);
+    if (!items.length) { grid.innerHTML = '<div class="empty-state">此分類沒有圖片</div>'; return; }
+    grid.innerHTML = items.map(item => makeCardHTML(item.filename, item.confidence, thisFolder, otherFolder)).join('');
+  }
+
+  function makeCardHTML(fn, conf, thisFolder, otherFolder) {
+    const side   = thisFolder === posFolder ? 'pos' : 'neg';
+    const sel    = selected[side].has(fn) ? ' selected' : '';
+    const confPct = conf != null ? (conf * 100).toFixed(1) + '%' : '';
+    return `
+      <div class="img-card${sel}" id="card-${thisFolder}-${fn}"
+           data-filename="${fn}" data-folder="${thisFolder}" data-conf="${conf ?? ''}">
+        <div class="card-img-wrap">
+          <img src="/api/image/${thisFolder}/${fn}" loading="lazy" alt="${fn}">
+          <div class="card-check">✓</div>
+          <div class="conf-badge">${confPct}</div>
+        </div>
+        <div class="img-card-body">
+          <div class="img-filename" title="${fn}">${fn}</div>
+          <div class="img-actions">
+            <button class="btn-action btn-move"
+              data-action="move" data-fn="${fn}" data-from="${thisFolder}" data-to="${otherFolder}">
+              → ${otherFolder}
+            </button>
+            <button class="btn-action btn-delete"
+              data-action="delete" data-fn="${fn}" data-folder="${thisFolder}">
+              刪除
+            </button>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ── Click delegation ──────────────────────────────────────
+
+  ['pos-grid', 'neg-grid'].forEach(gridId => {
+    document.getElementById(gridId).addEventListener('click', e => {
+      // Action buttons (move / delete)
+      const actionBtn = e.target.closest('[data-action]');
+      if (actionBtn) {
+        e.stopPropagation();
+        const { action, fn, from, to, folder } = actionBtn.dataset;
+        if (action === 'move')   singleMove(fn, from, to);
+        if (action === 'delete') singleDelete(fn, folder);
+        return;
+      }
+
+      const card = e.target.closest('.img-card');
+      if (!card) return;
+
+      const fn     = card.dataset.filename;
+      const folder = card.dataset.folder;
+      const side   = folder === posFolder ? 'pos' : 'neg';
+
+      if (showConf) {
+        // Conf mode: checkbox area (top-left 36×36px) = select; image area = lightbox
+        const rect = card.getBoundingClientRect();
+        const localX = e.clientX - rect.left;
+        const localY = e.clientY - rect.top;
+        const inCheckbox = localX <= 36 && localY <= 36;
+
+        if (inCheckbox) {
+          doToggleSelect(card, fn, folder, side, gridId, e.shiftKey);
+        } else if (!e.target.closest('.img-card-body')) {
+          openLightbox(folder, fn);
+        }
+      } else {
+        // Normal mode: click anywhere on card = select
+        doToggleSelect(card, fn, folder, side, gridId, e.shiftKey);
+      }
+    });
+  });
+
+  function doToggleSelect(card, fn, folder, side, gridId, shiftKey) {
+    const grid  = document.getElementById(gridId);
+    const cards = [...grid.querySelectorAll('.img-card')];
+    const idx   = cards.indexOf(card);
+
+    if (shiftKey && lastClickIndex[side] >= 0) {
+      const from = Math.min(lastClickIndex[side], idx);
+      const to   = Math.max(lastClickIndex[side], idx);
+      for (let i = from; i <= to; i++) {
+        selected[side].add(cards[i].dataset.filename);
+        cards[i].classList.add('selected');
+      }
+    } else {
+      if (selected[side].has(fn)) {
+        selected[side].delete(fn); card.classList.remove('selected');
+      } else {
+        selected[side].add(fn); card.classList.add('selected');
+      }
+      lastClickIndex[side] = idx;
+    }
+    updateSelectionBar(side);
+  }
+
+  // ── Drag rubber-band selection ─────────────────────────────
+
+  const dragOverlay = document.getElementById('drag-overlay');
+  let drag = null;
+
+  ['pos-grid', 'neg-grid'].forEach(gridId => {
+    const grid = document.getElementById(gridId);
+    const side = gridId === 'pos-grid' ? 'pos' : 'neg';
+    grid.addEventListener('mousedown', e => {
+      if (e.button !== 0 || e.target.closest('.img-card') || e.target.closest('[data-action]')) return;
+      e.preventDefault();
+      drag = { side, gridEl: grid, startX: e.clientX, startY: e.clientY, moved: false };
+    });
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!drag) return;
+    const dx = e.clientX - drag.startX, dy = e.clientY - drag.startY;
+    if (!drag.moved && Math.hypot(dx, dy) < 5) return;
+    drag.moved = true;
+    const left = Math.min(drag.startX, e.clientX), top = Math.min(drag.startY, e.clientY);
+    const w = Math.abs(dx), h = Math.abs(dy);
+    Object.assign(dragOverlay.style, { display: 'block', left: left+'px', top: top+'px', width: w+'px', height: h+'px' });
+    const sel = { left, top, right: left + w, bottom: top + h };
+    drag.gridEl.querySelectorAll('.img-card').forEach(c => {
+      const r = c.getBoundingClientRect();
+      c.classList.toggle('drag-hover', !(r.right < sel.left || r.left > sel.right || r.bottom < sel.top || r.top > sel.bottom));
+    });
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (!drag) return;
+    if (drag.moved) {
+      drag.gridEl.querySelectorAll('.img-card.drag-hover').forEach(c => {
+        selected[drag.side].add(c.dataset.filename);
+        c.classList.remove('drag-hover');
+        c.classList.add('selected');
+      });
+      updateSelectionBar(drag.side);
+    }
+    dragOverlay.style.display = 'none';
+    drag = null;
+  });
+
+  // ── Selection helpers ─────────────────────────────────────
+
+  function selectAll(side) {
+    document.getElementById(`${side}-grid`).querySelectorAll('.img-card').forEach(c => {
+      selected[side].add(c.dataset.filename); c.classList.add('selected');
+    });
+    updateSelectionBar(side);
+  }
+  function clearSelection(side) {
+    selected[side].clear();
+    document.getElementById(`${side}-grid`).querySelectorAll('.img-card').forEach(c => c.classList.remove('selected'));
+    updateSelectionBar(side);
+  }
+  function updateSelectionBar(side) {
+    const n = selected[side].size;
+    document.getElementById(`${side}-sel-bar`).style.display = n > 0 ? 'flex' : 'none';
+    document.getElementById(`${side}-sel-count`).textContent = `已選取 ${n} 張`;
+  }
+
+  // ── Single actions ────────────────────────────────────────
+
+  async function singleMove(fn, fromFolder, toFolder) {
+    await apiMove([fn], fromFolder, toFolder);
+    removeCard(fn, fromFolder); addCardToGrid(fn, toFolder, fromFolder);
+    adjustCount(fromFolder, -1); adjustCount(toFolder, +1);
+  }
+  async function singleDelete(fn, folder) {
+    await apiDelete([fn], folder);
+    removeCard(fn, folder); adjustCount(folder, -1);
+  }
+
+  // ── Bulk actions ──────────────────────────────────────────
+
+  async function bulkMove(side) {
+    const from = side === 'pos' ? posFolder : negFolder;
+    const to   = side === 'pos' ? negFolder : posFolder;
+    const files = [...selected[side]]; if (!files.length) return;
+    await apiMove(files, from, to);
+    files.forEach(fn => { selected[side].delete(fn); removeCard(fn, from); addCardToGrid(fn, to, from); });
+    adjustCount(from, -files.length); adjustCount(to, +files.length);
+    updateSelectionBar(side);
+  }
+  async function bulkDelete(side) {
+    const folder = side === 'pos' ? posFolder : negFolder;
+    const files  = [...selected[side]]; if (!files.length) return;
+    if (!confirm(`確定要刪除 ${files.length} 張圖片？`)) return;
+    await apiDelete(files, folder);
+    files.forEach(fn => { selected[side].delete(fn); removeCard(fn, folder); });
+    adjustCount(folder, -files.length); updateSelectionBar(side);
+  }
+
+  // ── API helpers ───────────────────────────────────────────
+
+  const post      = (url, body) => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const apiMove   = (filenames, from_folder, to_folder) => post('/api/move',   { filenames, from_folder, to_folder });
+  const apiDelete = (filenames, folder)                 => post('/api/delete', { filenames, folder });
+
+  // ── DOM helpers ───────────────────────────────────────────
+
+  function removeCard(fn, folder) {
+    document.getElementById(`card-${folder}-${fn}`)?.remove();
+    const side = folder === posFolder ? 'pos' : 'neg';
+    selected[side].delete(fn);
+  }
+  function addCardToGrid(fn, thisFolder, otherFolder) {
+    const side = thisFolder === posFolder ? 'pos' : 'neg';
+    const grid = document.getElementById(`${side}-grid`);
+    grid.querySelector('.empty-state')?.remove();
+    const conf = confData[`${thisFolder}/${fn}`] ?? confData[`${otherFolder}/${fn}`] ?? null;
+    const tmp  = document.createElement('div');
+    tmp.innerHTML = makeCardHTML(fn, conf, thisFolder, otherFolder);
+    grid.appendChild(tmp.firstElementChild);
+  }
+  function adjustCount(folder, delta) {
+    const id = folder === posFolder ? 'pos-count' : 'neg-count';
+    const el = document.getElementById(id);
+    el.textContent = Math.max(0, parseInt(el.textContent || '0') + delta);
+  }
+
+  // ── Lightbox ─────────────────────────────────────────────
+
+  const lb = { folder: null, filename: null, images: [] };
+
+  function openLightbox(folder, filename) {
+    const side    = folder === posFolder ? 'pos' : 'neg';
+    const grid    = document.getElementById(`${side}-grid`);
+    lb.folder     = folder;
+    lb.filename   = filename;
+    lb.images     = [...grid.querySelectorAll('.img-card')].map(c => c.dataset.filename);
+    renderLightbox();
+    document.getElementById('lightbox').classList.add('open');
+  }
+
+  function renderLightbox() {
+    const { folder, filename, images } = lb;
+    const idx   = images.indexOf(filename);
+    const conf  = confData[`${folder}/${filename}`];
+    const other = folder === posFolder ? negFolder : posFolder;
+    const isPos = folder === posFolder;
+
+    document.getElementById('lb-img').src            = `/api/image/${folder}/${filename}`;
+    document.getElementById('lb-filename').textContent = filename;
+    const catEl = document.getElementById('lb-category');
+    catEl.textContent  = folder;
+    catEl.className    = `lb-category ${isPos ? 'pos' : 'neg'}`;
+    document.getElementById('lb-conf').textContent    = conf != null ? `信心值：${(conf * 100).toFixed(2)}%` : '';
+    document.getElementById('lb-counter').textContent = `${idx + 1} / ${images.length}`;
+    document.getElementById('lb-btn-move').textContent = `移到 ${other}`;
+    document.getElementById('lb-prev').disabled = idx === 0;
+    document.getElementById('lb-next').disabled = idx === images.length - 1;
+  }
+
+  function lbNav(dir) {
+    const idx = lb.images.indexOf(lb.filename) + dir;
+    if (idx < 0 || idx >= lb.images.length) return;
+    lb.filename = lb.images[idx];
+    renderLightbox();
+  }
+
+  // Arrow key navigation
+  document.addEventListener('keydown', e => {
+    if (!document.getElementById('lightbox').classList.contains('open')) return;
+    if (e.key === 'ArrowLeft')  lbNav(-1);
+    if (e.key === 'ArrowRight') lbNav(+1);
+    if (e.key === 'Escape')     closeLightbox();
+  });
+
+  async function lbMove() {
+    const other = lb.folder === posFolder ? negFolder : posFolder;
+    const fn    = lb.filename;
+    const from  = lb.folder;
+    // Advance to next before removing
+    const nextIdx = lb.images.indexOf(fn) + 1;
+    lb.images = lb.images.filter(f => f !== fn);
+    lb.filename = lb.images[Math.min(nextIdx, lb.images.length - 1)] ?? null;
+
+    await singleMove(fn, from, other);
+    if (lb.filename) { lb.folder = from; renderLightbox(); }
+    else closeLightbox();
+  }
+
+  async function lbDelete() {
+    if (!confirm(`確定要刪除 ${lb.filename}？`)) return;
+    const fn    = lb.filename;
+    const folder = lb.folder;
+    const nextIdx = lb.images.indexOf(fn) + 1;
+    lb.images = lb.images.filter(f => f !== fn);
+    lb.filename = lb.images[Math.min(nextIdx, lb.images.length - 1)] ?? null;
+
+    await singleDelete(fn, folder);
+    if (lb.filename) renderLightbox();
+    else closeLightbox();
+  }
+
+  function closeLightbox() {
+    document.getElementById('lightbox').classList.remove('open');
+  }
+  function lbClickOutside(e) {
+    if (e.target === document.getElementById('lightbox')) closeLightbox();
+  }
+</script>
+</body>
+</html>

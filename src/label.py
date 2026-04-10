@@ -39,4 +39,4 @@ def detect_red_clothes(image_path):
 
 # 使用範例
 if __name__ == "__main__":
-    detect_red_clothes("../data/test_images/a-red-car-driving.jpg")
+    detect_red_clothes("data/test_images/images.jpg")
