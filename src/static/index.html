@@ -145,9 +145,8 @@
       position: absolute; bottom: 0; left: 0; right: 0;
       background: rgba(0,0,0,.55); color: white;
       font-size: 11px; font-weight: 600; text-align: center; padding: 3px 0;
-      display: none; pointer-events: none;
+      display: block; pointer-events: none;
     }
-    body.show-conf .conf-badge { display: block; }
 
     /* Card body */
     .img-card-body { padding: 5px 7px 7px; }
@@ -245,7 +244,8 @@
       </div>
     </div>
     <div class="lb-actions">
-      <button class="lb-btn lb-btn-move"   id="lb-btn-move"   onclick="lbMove()">移到另一類</button>
+      <button class="lb-btn lb-btn-move"   id="lb-btn-move-1" onclick="lbMoveToFolder(1)" style="display:none">移到 X</button>
+      <button class="lb-btn lb-btn-move"   id="lb-btn-move-2" onclick="lbMoveToFolder(2)" style="display:none">移到 Y</button>
       <button class="lb-btn lb-btn-delete" id="lb-btn-delete" onclick="lbDelete()">刪除</button>
       <button class="lb-btn lb-btn-close"  onclick="closeLightbox()">關閉</button>
     </div>
@@ -355,10 +355,6 @@
       <div id="progress-msg">準備中...</div>
       <div id="progress-bar-bg"><div id="progress-bar"></div></div>
     </div>
-    <label class="conf-toggle-wrap">
-      <input type="checkbox" id="chk-conf" onchange="toggleConfidence(this.checked)">
-      顯示信心值
-    </label>
     <a id="btn-download" href="/api/download" download="labeled_output.zip">⬇ 下載 ZIP</a>
   </div>
 
@@ -443,7 +439,6 @@
   let posFolder    = 'positive';
   let negFolder    = 'negative';
   let thirdFolder  = 'other';
-  let showConf     = false;
   let ternaryMode  = false;
 
   const selected       = { pos: new Set(), neg: new Set(), third: new Set() };
@@ -518,13 +513,6 @@
     document.getElementById('ternary-folders').style.display = isTernary ? 'block' : 'none';
     document.getElementById('results').classList.toggle('ternary-mode', isTernary);
     document.getElementById('third-panel').classList.toggle('hidden', !isTernary);
-  }
-
-  // ── Confidence toggle ─────────────────────────────────────
-
-  function toggleConfidence(on) {
-    showConf = on;
-    document.body.classList.toggle('show-conf', on);
   }
 
   // ── Run pipeline ─────────────────────────────────────────
@@ -799,21 +787,16 @@
       else if (folder === negFolder) side = 'neg';
       else side = 'third';
 
-      if (showConf) {
-        // Conf mode: checkbox area (top-left 36×36px) = select; image area = lightbox
-        const rect = card.getBoundingClientRect();
-        const localX = e.clientX - rect.left;
-        const localY = e.clientY - rect.top;
-        const inCheckbox = localX <= 36 && localY <= 36;
+      // Checkbox area (top-left 36×36px) = select; image area = lightbox
+      const rect = card.getBoundingClientRect();
+      const localX = e.clientX - rect.left;
+      const localY = e.clientY - rect.top;
+      const inCheckbox = localX <= 36 && localY <= 36;
 
-        if (inCheckbox) {
-          doToggleSelect(card, fn, folder, side, gridId, e.shiftKey);
-        } else if (!e.target.closest('.img-card-body')) {
-          openLightbox(folder, fn);
-        }
-      } else {
-        // Normal mode: click anywhere on card = select
+      if (inCheckbox) {
         doToggleSelect(card, fn, folder, side, gridId, e.shiftKey);
+      } else if (!e.target.closest('.img-card-body')) {
+        openLightbox(folder, fn);
       }
     });
   });
@@ -1093,14 +1076,7 @@
     const idx   = images.indexOf(filename);
     const conf  = confData[`${folder}/${filename}`];
 
-    let other, isPos;
-    if (ternaryMode) {
-      other = null; // Will show a menu instead
-      isPos = folder === posFolder;
-    } else {
-      other = folder === posFolder ? negFolder : posFolder;
-      isPos = folder === posFolder;
-    }
+    const isPos = folder === posFolder;
 
     document.getElementById('lb-img').src            = `/api/image/${folder}/${filename}`;
     document.getElementById('lb-filename').textContent = filename;
@@ -1110,10 +1086,26 @@
     document.getElementById('lb-conf').textContent    = conf != null ? `信心值：${(conf * 100).toFixed(2)}%` : '';
     document.getElementById('lb-counter').textContent = `${idx + 1} / ${images.length}`;
 
+    // 设置移动按钮
+    const btn1 = document.getElementById('lb-btn-move-1');
+    const btn2 = document.getElementById('lb-btn-move-2');
+
     if (ternaryMode) {
-      document.getElementById('lb-btn-move').textContent = '移到另一類';
+      // 三元分类：显示两个移动按钮
+      const otherFolders = [posFolder, negFolder, thirdFolder].filter(f => f !== folder);
+      btn1.textContent = `移到 ${otherFolders[0]}`;
+      btn2.textContent = `移到 ${otherFolders[1]}`;
+      btn1.dataset.targetFolder = otherFolders[0];
+      btn2.dataset.targetFolder = otherFolders[1];
+      btn1.style.display = 'inline-block';
+      btn2.style.display = 'inline-block';
     } else {
-      document.getElementById('lb-btn-move').textContent = `移到 ${other}`;
+      // 二元分类：只显示一个移动按钮
+      const targetFolder = folder === posFolder ? negFolder : posFolder;
+      btn1.textContent = `移到 ${targetFolder}`;
+      btn1.dataset.targetFolder = targetFolder;
+      btn1.style.display = 'inline-block';
+      btn2.style.display = 'none';
     }
 
     document.getElementById('lb-prev').disabled = idx === 0;
@@ -1135,20 +1127,11 @@
     if (e.key === 'Escape')     closeLightbox();
   });
 
-  async function lbMove() {
+  async function lbMoveToFolder(folderIndex) {
     const fn   = lb.filename;
     const from = lb.folder;
-    let to;
-
-    if (ternaryMode) {
-      const otherFolders = [posFolder, negFolder, thirdFolder].filter(f => f !== from);
-      const choice = prompt(`移動到哪個類別？\n1. ${otherFolders[0]}\n2. ${otherFolders[1]}\n請輸入 1 或 2：`);
-      if (choice === '1') to = otherFolders[0];
-      else if (choice === '2') to = otherFolders[1];
-      else return;
-    } else {
-      to = lb.folder === posFolder ? negFolder : posFolder;
-    }
+    const btn  = document.getElementById(`lb-btn-move-${folderIndex}`);
+    const to   = btn.dataset.targetFolder;
 
     // Advance to next before removing
     const nextIdx = lb.images.indexOf(fn) + 1;
