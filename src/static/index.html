@@ -377,7 +377,8 @@
       </div>
       <div class="sel-bar" id="pos-sel-bar">
         <span class="sel-bar-count" id="pos-sel-count"></span>
-        <button class="btn-bulk btn-bulk-move"   onclick="bulkMove('pos')">移動</button>
+        <button class="btn-bulk btn-bulk-move" id="pos-move-1" onclick="bulkMoveToFolder('pos', 1)" style="display:none"></button>
+        <button class="btn-bulk btn-bulk-move" id="pos-move-2" onclick="bulkMoveToFolder('pos', 2)" style="display:none"></button>
         <button class="btn-bulk btn-bulk-delete" onclick="bulkDelete('pos')">刪除</button>
         <button class="btn-bulk btn-bulk-clear"  onclick="clearSelection('pos')">取消</button>
       </div>
@@ -400,7 +401,8 @@
       </div>
       <div class="sel-bar" id="neg-sel-bar">
         <span class="sel-bar-count" id="neg-sel-count"></span>
-        <button class="btn-bulk btn-bulk-move"   onclick="bulkMove('neg')">移動</button>
+        <button class="btn-bulk btn-bulk-move" id="neg-move-1" onclick="bulkMoveToFolder('neg', 1)" style="display:none"></button>
+        <button class="btn-bulk btn-bulk-move" id="neg-move-2" onclick="bulkMoveToFolder('neg', 2)" style="display:none"></button>
         <button class="btn-bulk btn-bulk-delete" onclick="bulkDelete('neg')">刪除</button>
         <button class="btn-bulk btn-bulk-clear"  onclick="clearSelection('neg')">取消</button>
       </div>
@@ -423,7 +425,8 @@
       </div>
       <div class="sel-bar" id="third-sel-bar">
         <span class="sel-bar-count" id="third-sel-count"></span>
-        <button class="btn-bulk btn-bulk-move"   onclick="bulkMove('third')">移動</button>
+        <button class="btn-bulk btn-bulk-move" id="third-move-1" onclick="bulkMoveToFolder('third', 1)" style="display:none"></button>
+        <button class="btn-bulk btn-bulk-move" id="third-move-2" onclick="bulkMoveToFolder('third', 2)" style="display:none"></button>
         <button class="btn-bulk btn-bulk-delete" onclick="bulkDelete('third')">刪除</button>
         <button class="btn-bulk btn-bulk-clear"  onclick="clearSelection('third')">取消</button>
       </div>
@@ -688,15 +691,7 @@
   function updateFolderLabels() {
     document.getElementById('pos-title').textContent = posFolder;
     document.getElementById('neg-title').textContent = negFolder;
-
-    if (!ternaryMode) {
-      document.querySelector('#pos-sel-bar .btn-bulk-move').textContent = `移到 ${negFolder}`;
-      document.querySelector('#neg-sel-bar .btn-bulk-move').textContent = `移到 ${posFolder}`;
-    } else {
-      document.querySelector('#pos-sel-bar .btn-bulk-move').textContent = '移動';
-      document.querySelector('#neg-sel-bar .btn-bulk-move').textContent = '移動';
-      document.querySelector('#third-sel-bar .btn-bulk-move').textContent = '移動';
-    }
+    // 移动按钮的文本由updateSelectionBar函数处理
   }
 
   function renderGrid(gridId, countId, items, thisFolder, otherFolder) {
@@ -750,6 +745,10 @@
     const sel = selected[side].has(fn) ? ' selected' : '';
     const confPct = conf != null ? (conf * 100).toFixed(1) + '%' : '';
 
+    // 简化文件夹名称显示（最多显示8个字符）
+    const folder1Short = otherFolders[0].length > 8 ? otherFolders[0].substring(0, 7) + '…' : otherFolders[0];
+    const folder2Short = otherFolders[1].length > 8 ? otherFolders[1].substring(0, 7) + '…' : otherFolders[1];
+
     return `
       <div class="img-card${sel}" id="card-${thisFolder}-${fn}"
            data-filename="${fn}" data-folder="${thisFolder}" data-conf="${conf ?? ''}">
@@ -762,13 +761,14 @@
           <div class="img-filename" title="${fn}">${fn}</div>
           <div class="img-actions">
             <button class="btn-action btn-move"
-              data-action="move-ternary" data-fn="${fn}" data-from="${thisFolder}"
-              data-to1="${otherFolders[0]}" data-to2="${otherFolders[1]}">
-              移動
+              data-action="move" data-fn="${fn}" data-from="${thisFolder}" data-to="${otherFolders[0]}"
+              title="移到 ${otherFolders[0]}">
+              → ${folder1Short}
             </button>
-            <button class="btn-action btn-delete"
-              data-action="delete" data-fn="${fn}" data-folder="${thisFolder}">
-              刪除
+            <button class="btn-action btn-move"
+              data-action="move" data-fn="${fn}" data-from="${thisFolder}" data-to="${otherFolders[1]}"
+              title="移到 ${otherFolders[1]}">
+              → ${folder2Short}
             </button>
           </div>
         </div>
@@ -783,14 +783,8 @@
       const actionBtn = e.target.closest('[data-action]');
       if (actionBtn) {
         e.stopPropagation();
-        const { action, fn, from, to, to1, to2, folder } = actionBtn.dataset;
+        const { action, fn, from, to, folder } = actionBtn.dataset;
         if (action === 'move') singleMove(fn, from, to);
-        if (action === 'move-ternary') {
-          // 為三元分類顯示移動選項
-          const target = prompt(`移動到哪個類別？\n1. ${to1}\n2. ${to2}\n請輸入 1 或 2：`);
-          if (target === '1') singleMove(fn, from, to1);
-          else if (target === '2') singleMove(fn, from, to2);
-        }
         if (action === 'delete') singleDelete(fn, folder);
         return;
       }
@@ -912,6 +906,41 @@
     const n = selected[side].size;
     document.getElementById(`${side}-sel-bar`).style.display = n > 0 ? 'flex' : 'none';
     document.getElementById(`${side}-sel-count`).textContent = `已選取 ${n} 張`;
+
+    const btn1 = document.getElementById(`${side}-move-1`);
+    const btn2 = document.getElementById(`${side}-move-2`);
+
+    if (n > 0) {
+      if (ternaryMode) {
+        // 三元分类模式：显示两个移动按钮
+        let currentFolder;
+        if (side === 'pos') currentFolder = posFolder;
+        else if (side === 'neg') currentFolder = negFolder;
+        else currentFolder = thirdFolder;
+
+        const otherFolders = [posFolder, negFolder, thirdFolder].filter(f => f !== currentFolder);
+
+        btn1.textContent = `移到 ${otherFolders[0]}`;
+        btn2.textContent = `移到 ${otherFolders[1]}`;
+        btn1.style.display = 'inline-block';
+        btn2.style.display = 'inline-block';
+
+        // 存储目标文件夹到按钮属性
+        btn1.dataset.targetFolder = otherFolders[0];
+        btn2.dataset.targetFolder = otherFolders[1];
+      } else {
+        // 二元分类模式：只显示一个移动按钮
+        const targetFolder = side === 'pos' ? negFolder : posFolder;
+        btn1.textContent = `移到 ${targetFolder}`;
+        btn1.style.display = 'inline-block';
+        btn1.dataset.targetFolder = targetFolder;
+        btn2.style.display = 'none';
+      }
+    } else {
+      // 没有选择时隐藏所有移动按钮
+      btn1.style.display = 'none';
+      btn2.style.display = 'none';
+    }
   }
 
   // ── Single actions ────────────────────────────────────────
@@ -928,29 +957,50 @@
 
   // ── Bulk actions ──────────────────────────────────────────
 
-  async function bulkMove(side) {
+  async function bulkMoveToFolder(side, folderIndex) {
     let from, to;
-    if (ternaryMode) {
-      // 三元分類模式
-      if (side === 'pos') from = posFolder;
-      else if (side === 'neg') from = negFolder;
-      else from = thirdFolder;
+    if (side === 'pos') from = posFolder;
+    else if (side === 'neg') from = negFolder;
+    else from = thirdFolder;
 
-      const otherFolders = [posFolder, negFolder, thirdFolder].filter(f => f !== from);
-      const choice = prompt(`移動到哪個類別？\n1. ${otherFolders[0]}\n2. ${otherFolders[1]}\n請輸入 1 或 2：`);
-      if (choice === '1') to = otherFolders[0];
-      else if (choice === '2') to = otherFolders[1];
-      else return;
-    } else {
-      // 二元分類模式
-      from = side === 'pos' ? posFolder : negFolder;
-      to   = side === 'pos' ? negFolder : posFolder;
-    }
+    const btn = document.getElementById(`${side}-move-${folderIndex}`);
+    to = btn.dataset.targetFolder;
 
-    const files = [...selected[side]]; if (!files.length) return;
+    const files = [...selected[side]];
+    if (!files.length) return;
+
     await apiMove(files, from, to);
-    files.forEach(fn => { selected[side].delete(fn); removeCard(fn, from); addCardToGrid(fn, to, from); });
-    adjustCount(from, -files.length); adjustCount(to, +files.length);
+    files.forEach(fn => {
+      selected[side].delete(fn);
+      removeCard(fn, from);
+      addCardToGrid(fn, to, from);
+    });
+    adjustCount(from, -files.length);
+    adjustCount(to, +files.length);
+    updateSelectionBar(side);
+  }
+
+  // 保留原来的bulkMove函数用于二元分类（如果需要）
+  async function bulkMove(side) {
+    if (ternaryMode) {
+      // 三元分类不应该调用此函数
+      return;
+    }
+    // 二元分類模式
+    const from = side === 'pos' ? posFolder : negFolder;
+    const to   = side === 'pos' ? negFolder : posFolder;
+
+    const files = [...selected[side]];
+    if (!files.length) return;
+
+    await apiMove(files, from, to);
+    files.forEach(fn => {
+      selected[side].delete(fn);
+      removeCard(fn, from);
+      addCardToGrid(fn, to, from);
+    });
+    adjustCount(from, -files.length);
+    adjustCount(to, +files.length);
     updateSelectionBar(side);
   }
 
