@@ -14,7 +14,7 @@ def detect_red_clothes(image_path):
 
     # 3. 定義標籤 (對比式描述)
     # 第一個是目標，第二個是干擾項，這能幫助模型做二元排除
-    labels = ["a person wearing red clothes", "a red object", "a photo of person", "an empty street or background"]
+    labels = ["a person wearing red clothes", "a group of people without any red clothes", "an empty street or background"]
 
     # 4. 影像預處理與推理
     inputs = processor(text=labels, images=image, return_tensors="pt", padding=True)
@@ -39,4 +39,4 @@ def detect_red_clothes(image_path):
 
 # 使用範例
 if __name__ == "__main__":
-    detect_red_clothes("data/test_images/images.jpg")
+    detect_red_clothes("data/test_images/test_camera_red.jpg")
