@@ -44,7 +44,7 @@ pip install fastapi uvicorn[standard] python-multipart opencv-python pillow pyya
 ## 網頁介面（推薦）
 
 ```bash
-uvicorn src.app:app --reload
+uv run uvicorn src.app:app --reload
 ```
 
 開啟瀏覽器：`http://localhost:8000`
