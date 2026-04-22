@@ -70,8 +70,10 @@
 
     /* ── Results layout ── */
     #results { flex: 1; display: grid; grid-template-columns: 1fr 1fr; overflow: hidden; }
+    #results.ternary-mode { grid-template-columns: 1fr 1fr 1fr; }
     .category-panel { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid #e2e8f0; }
     .category-panel:last-child { border-right: none; }
+    .category-panel.hidden { display: none; }
 
     .category-header { padding: 8px 14px; background: white; border-bottom: 1px solid #e2e8f0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
     .category-name { font-size: 14px; font-weight: 700; flex: 1; }
@@ -266,26 +268,40 @@
   <div class="divider"></div>
 
   <div>
-    <div class="section-title">分類標籤</div>
-    <label>Positive（想找的目標）</label>
-    <input type="text" id="positive-label" value="a person wearing red clothes">
-    <div style="margin-top:12px">
-      <label>Negative（干擾項）</label>
-      <div id="neg-labels-list">
-        <div class="neg-label-row">
-          <input type="text" value="a person not wearing red clothes">
-          <button class="btn-remove" onclick="removeNegLabel(this)">×</button>
+    <div class="section-title">分類模式</div>
+    <label class="conf-toggle-wrap" style="margin-bottom:12px">
+      <input type="checkbox" id="chk-ternary" onchange="toggleClassificationMode(this.checked)">
+      使用三元分類模式
+    </label>
+
+    <!-- 二元分類 UI -->
+    <div id="binary-ui">
+      <label>Positive（想找的目標）</label>
+      <input type="text" id="positive-label" value="a person wearing red clothes">
+      <div style="margin-top:12px">
+        <label>Negative（干擾項）</label>
+        <div id="neg-labels-list">
+          <div class="neg-label-row">
+            <input type="text" value="no person">
+            <button class="btn-remove" onclick="removeNegLabel(this)">×</button>
+          </div>
+          <div class="neg-label-row">
+            <input type="text" value="other">
+            <button class="btn-remove" onclick="removeNegLabel(this)">×</button>
+          </div>
         </div>
-        <div class="neg-label-row">
-          <input type="text" value="a red object or vehicle">
-          <button class="btn-remove" onclick="removeNegLabel(this)">×</button>
-        </div>
-        <div class="neg-label-row">
-          <input type="text" value="a street background">
-          <button class="btn-remove" onclick="removeNegLabel(this)">×</button>
-        </div>
+        <button id="btn-add-neg" onclick="addNegLabel()">＋ 新增干擾項</button>
       </div>
-      <button id="btn-add-neg" onclick="addNegLabel()">＋ 新增干擾項</button>
+    </div>
+
+    <!-- 三元分類 UI -->
+    <div id="ternary-ui" style="display:none">
+      <label>類別 1</label>
+      <input type="text" id="ternary-label-0" value="a person wearing red clothes.">
+      <label style="margin-top:8px">類別 2</label>
+      <input type="text" id="ternary-label-1" value="no person">
+      <label style="margin-top:8px">類別 3</label>
+      <input type="text" id="ternary-label-2" value="other">
     </div>
   </div>
 
@@ -297,20 +313,33 @@
     <div class="slider-row">
       <input type="range" id="frame-interval" min="1" max="60" value="10"
              oninput="document.getElementById('fi-val').textContent=this.value">
-      <span class="slider-val" id="fi-val">10</span>
+      <span class="slider-val" id="fi-val">15</span>
     </div>
     <label style="margin-top:10px">最多抽取張數（0 = 不限）</label>
-    <input type="number" id="max-frames" value="200" min="0">
+    <input type="number" id="max-frames" value="0" min="0">
     <label style="margin-top:10px">信心門檻</label>
     <div class="slider-row">
       <input type="range" id="threshold" min="0" max="100" value="55"
              oninput="document.getElementById('th-val').textContent=(this.value/100).toFixed(2)">
       <span class="slider-val" id="th-val">0.55</span>
     </div>
-    <label style="margin-top:10px">Positive 資料夾名稱</label>
-    <input type="text" id="pos-folder" value="red">
-    <label style="margin-top:8px">Negative 資料夾名稱</label>
-    <input type="text" id="neg-folder" value="non_red">
+    <!-- 二元分類資料夾 -->
+    <div id="binary-folders">
+      <label style="margin-top:10px">Positive 資料夾名稱</label>
+      <input type="text" id="pos-folder" value="red">
+      <label style="margin-top:8px">Negative 資料夾名稱</label>
+      <input type="text" id="neg-folder" value="non_red">
+    </div>
+
+    <!-- 三元分類資料夾 -->
+    <div id="ternary-folders" style="display:none">
+      <label style="margin-top:10px">類別 1 資料夾名稱</label>
+      <input type="text" id="ternary-folder-0" value="red_person">
+      <label style="margin-top:8px">類別 2 資料夾名稱</label>
+      <input type="text" id="ternary-folder-1" value="no_person">
+      <label style="margin-top:8px">類別 3 資料夾名稱</label>
+      <input type="text" id="ternary-folder-2" value="other">
+    </div>
   </div>
 
   <div style="margin-top:auto; padding-top:12px">
@@ -379,6 +408,29 @@
         <div class="empty-state">執行 pipeline 後結果會顯示在這裡</div>
       </div>
     </div>
+
+    <!-- Third panel (for ternary mode) -->
+    <div class="category-panel hidden" id="third-panel">
+      <div class="category-header" id="third-header">
+        <span class="category-name" id="third-title">Other</span>
+        <span class="category-count" id="third-count">0</span>
+        <div class="zoom-controls">
+          <button class="btn-zoom" onclick="setZoom('third',-20)">−</button>
+          <span class="zoom-val" id="third-zoom-val">130</span>
+          <button class="btn-zoom" onclick="setZoom('third',+20)">＋</button>
+        </div>
+        <button class="btn-header" onclick="selectAll('third')">全選</button>
+      </div>
+      <div class="sel-bar" id="third-sel-bar">
+        <span class="sel-bar-count" id="third-sel-count"></span>
+        <button class="btn-bulk btn-bulk-move"   onclick="bulkMove('third')">移動</button>
+        <button class="btn-bulk btn-bulk-delete" onclick="bulkDelete('third')">刪除</button>
+        <button class="btn-bulk btn-bulk-clear"  onclick="clearSelection('third')">取消</button>
+      </div>
+      <div class="image-grid" id="third-grid">
+        <div class="empty-state">執行 pipeline 後結果會顯示在這裡</div>
+      </div>
+    </div>
   </div>
 </main>
 
@@ -387,11 +439,13 @@
   let pollTimer    = null;
   let posFolder    = 'positive';
   let negFolder    = 'negative';
+  let thirdFolder  = 'other';
   let showConf     = false;
+  let ternaryMode  = false;
 
-  const selected       = { pos: new Set(), neg: new Set() };
-  const lastClickIndex = { pos: -1, neg: -1 };
-  const zoomSize       = { pos: 130, neg: 130 };
+  const selected       = { pos: new Set(), neg: new Set(), third: new Set() };
+  const lastClickIndex = { pos: -1, neg: -1, third: -1 };
+  const zoomSize       = { pos: 130, neg: 130, third: 130 };
 
   // confidence data: "folder/filename" -> float
   const confData = {};
@@ -451,6 +505,18 @@
     document.getElementById(`${side}-zoom-val`).textContent = w;
   }
 
+  // ── Classification mode toggle ────────────────────────────
+
+  function toggleClassificationMode(isTernary) {
+    ternaryMode = isTernary;
+    document.getElementById('binary-ui').style.display = isTernary ? 'none' : 'block';
+    document.getElementById('ternary-ui').style.display = isTernary ? 'block' : 'none';
+    document.getElementById('binary-folders').style.display = isTernary ? 'none' : 'block';
+    document.getElementById('ternary-folders').style.display = isTernary ? 'block' : 'none';
+    document.getElementById('results').classList.toggle('ternary-mode', isTernary);
+    document.getElementById('third-panel').classList.toggle('hidden', !isTernary);
+  }
+
   // ── Confidence toggle ─────────────────────────────────────
 
   function toggleConfidence(on) {
@@ -462,19 +528,47 @@
 
   async function runPipeline() {
     if (!uploadedPath) return;
-    const cfg = {
-      video_path:           uploadedPath,
-      positive_label:       document.getElementById('positive-label').value.trim(),
-      negative_labels:      getNegLabels(),
-      positive_folder:      document.getElementById('pos-folder').value.trim() || 'positive',
-      negative_folder:      document.getElementById('neg-folder').value.trim() || 'negative',
-      frame_interval:       parseInt(document.getElementById('frame-interval').value),
-      max_frames:           parseInt(document.getElementById('max-frames').value),
-      confidence_threshold: parseInt(document.getElementById('threshold').value) / 100,
-    };
-    posFolder = cfg.positive_folder;
-    negFolder = cfg.negative_folder;
-    updateFolderLabels();
+
+    let cfg;
+    if (ternaryMode) {
+      // 三元分類模式
+      const ternaryLabels = [
+        document.getElementById('ternary-label-0').value.trim(),
+        document.getElementById('ternary-label-1').value.trim(),
+        document.getElementById('ternary-label-2').value.trim(),
+      ];
+      const ternaryFolders = [
+        document.getElementById('ternary-folder-0').value.trim() || 'red_person',
+        document.getElementById('ternary-folder-1').value.trim() || 'no_person',
+        document.getElementById('ternary-folder-2').value.trim() || 'other',
+      ];
+      cfg = {
+        video_path:      uploadedPath,
+        ternary_mode:    true,
+        ternary_labels:  ternaryLabels,
+        ternary_folders: ternaryFolders,
+        frame_interval:  parseInt(document.getElementById('frame-interval').value),
+        max_frames:      parseInt(document.getElementById('max-frames').value),
+      };
+      posFolder = ternaryFolders[0];
+      negFolder = ternaryFolders[1];
+      thirdFolder = ternaryFolders[2];
+    } else {
+      // 二元分類模式
+      cfg = {
+        video_path:           uploadedPath,
+        ternary_mode:         false,
+        positive_label:       document.getElementById('positive-label').value.trim(),
+        negative_labels:      getNegLabels(),
+        positive_folder:      document.getElementById('pos-folder').value.trim() || 'positive',
+        negative_folder:      document.getElementById('neg-folder').value.trim() || 'negative',
+        frame_interval:       parseInt(document.getElementById('frame-interval').value),
+        max_frames:           parseInt(document.getElementById('max-frames').value),
+        confidence_threshold: parseInt(document.getElementById('threshold').value) / 100,
+      };
+      posFolder = cfg.positive_folder;
+      negFolder = cfg.negative_folder;
+    }
 
     const btn = document.getElementById('btn-run');
     btn.disabled = true; btn.textContent = '執行中...';
@@ -532,28 +626,77 @@
 
   async function loadResults() {
     const data = await fetch('/api/results').then(r => r.json());
-    posFolder = data.positive.folder;
-    negFolder = data.negative.folder;
-    updateFolderLabels();
-    selected.pos.clear(); selected.neg.clear();
-    lastClickIndex.pos = -1; lastClickIndex.neg = -1;
 
-    // Cache confidence data
-    for (const item of data.positive.images)
-      if (item.confidence != null) confData[`${posFolder}/${item.filename}`] = item.confidence;
-    for (const item of data.negative.images)
-      if (item.confidence != null) confData[`${negFolder}/${item.filename}`] = item.confidence;
+    if (data.ternary_mode) {
+      // 三元分類模式
+      ternaryMode = true;
+      const categories = data.categories;
+      posFolder = categories[0].folder;
+      negFolder = categories[1].folder;
+      thirdFolder = categories[2].folder;
 
-    renderGrid('pos-grid', 'pos-count', data.positive.images,  posFolder, negFolder);
-    renderGrid('neg-grid', 'neg-count', data.negative.images, negFolder, posFolder);
-    updateSelectionBar('pos'); updateSelectionBar('neg');
+      selected.pos.clear(); selected.neg.clear(); selected.third.clear();
+      lastClickIndex.pos = -1; lastClickIndex.neg = -1; lastClickIndex.third = -1;
+
+      // Cache confidence data
+      for (const cat of categories) {
+        for (const item of cat.images) {
+          if (item.confidence != null) confData[`${cat.folder}/${item.filename}`] = item.confidence;
+        }
+      }
+
+      // Update labels
+      document.getElementById('pos-title').textContent = posFolder;
+      document.getElementById('neg-title').textContent = negFolder;
+      document.getElementById('third-title').textContent = thirdFolder;
+
+      // Render grids for ternary mode
+      renderGridTernary('pos-grid', 'pos-count', categories[0].images, posFolder, [negFolder, thirdFolder]);
+      renderGridTernary('neg-grid', 'neg-count', categories[1].images, negFolder, [posFolder, thirdFolder]);
+      renderGridTernary('third-grid', 'third-count', categories[2].images, thirdFolder, [posFolder, negFolder]);
+
+      updateSelectionBar('pos'); updateSelectionBar('neg'); updateSelectionBar('third');
+
+      // Show third panel
+      document.getElementById('results').classList.add('ternary-mode');
+      document.getElementById('third-panel').classList.remove('hidden');
+    } else {
+      // 二元分類模式
+      ternaryMode = false;
+      posFolder = data.positive.folder;
+      negFolder = data.negative.folder;
+      updateFolderLabels();
+      selected.pos.clear(); selected.neg.clear();
+      lastClickIndex.pos = -1; lastClickIndex.neg = -1;
+
+      // Cache confidence data
+      for (const item of data.positive.images)
+        if (item.confidence != null) confData[`${posFolder}/${item.filename}`] = item.confidence;
+      for (const item of data.negative.images)
+        if (item.confidence != null) confData[`${negFolder}/${item.filename}`] = item.confidence;
+
+      renderGrid('pos-grid', 'pos-count', data.positive.images,  posFolder, negFolder);
+      renderGrid('neg-grid', 'neg-count', data.negative.images, negFolder, posFolder);
+      updateSelectionBar('pos'); updateSelectionBar('neg');
+
+      // Hide third panel
+      document.getElementById('results').classList.remove('ternary-mode');
+      document.getElementById('third-panel').classList.add('hidden');
+    }
   }
 
   function updateFolderLabels() {
     document.getElementById('pos-title').textContent = posFolder;
     document.getElementById('neg-title').textContent = negFolder;
-    document.querySelector('#pos-sel-bar .btn-bulk-move').textContent = `移到 ${negFolder}`;
-    document.querySelector('#neg-sel-bar .btn-bulk-move').textContent = `移到 ${posFolder}`;
+
+    if (!ternaryMode) {
+      document.querySelector('#pos-sel-bar .btn-bulk-move').textContent = `移到 ${negFolder}`;
+      document.querySelector('#neg-sel-bar .btn-bulk-move').textContent = `移到 ${posFolder}`;
+    } else {
+      document.querySelector('#pos-sel-bar .btn-bulk-move').textContent = '移動';
+      document.querySelector('#neg-sel-bar .btn-bulk-move').textContent = '移動';
+      document.querySelector('#third-sel-bar .btn-bulk-move').textContent = '移動';
+    }
   }
 
   function renderGrid(gridId, countId, items, thisFolder, otherFolder) {
@@ -561,6 +704,13 @@
     const grid = document.getElementById(gridId);
     if (!items.length) { grid.innerHTML = '<div class="empty-state">此分類沒有圖片</div>'; return; }
     grid.innerHTML = items.map(item => makeCardHTML(item.filename, item.confidence, thisFolder, otherFolder)).join('');
+  }
+
+  function renderGridTernary(gridId, countId, items, thisFolder, otherFolders) {
+    document.getElementById(countId).textContent = items.length;
+    const grid = document.getElementById(gridId);
+    if (!items.length) { grid.innerHTML = '<div class="empty-state">此分類沒有圖片</div>'; return; }
+    grid.innerHTML = items.map(item => makeCardHTMLTernary(item.filename, item.confidence, thisFolder, otherFolders)).join('');
   }
 
   function makeCardHTML(fn, conf, thisFolder, otherFolder) {
@@ -591,16 +741,56 @@
       </div>`;
   }
 
+  function makeCardHTMLTernary(fn, conf, thisFolder, otherFolders) {
+    let side;
+    if (thisFolder === posFolder) side = 'pos';
+    else if (thisFolder === negFolder) side = 'neg';
+    else side = 'third';
+
+    const sel = selected[side].has(fn) ? ' selected' : '';
+    const confPct = conf != null ? (conf * 100).toFixed(1) + '%' : '';
+
+    return `
+      <div class="img-card${sel}" id="card-${thisFolder}-${fn}"
+           data-filename="${fn}" data-folder="${thisFolder}" data-conf="${conf ?? ''}">
+        <div class="card-img-wrap">
+          <img src="/api/image/${thisFolder}/${fn}" loading="lazy" alt="${fn}">
+          <div class="card-check">✓</div>
+          <div class="conf-badge">${confPct}</div>
+        </div>
+        <div class="img-card-body">
+          <div class="img-filename" title="${fn}">${fn}</div>
+          <div class="img-actions">
+            <button class="btn-action btn-move"
+              data-action="move-ternary" data-fn="${fn}" data-from="${thisFolder}"
+              data-to1="${otherFolders[0]}" data-to2="${otherFolders[1]}">
+              移動
+            </button>
+            <button class="btn-action btn-delete"
+              data-action="delete" data-fn="${fn}" data-folder="${thisFolder}">
+              刪除
+            </button>
+          </div>
+        </div>
+      </div>`;
+  }
+
   // ── Click delegation ──────────────────────────────────────
 
-  ['pos-grid', 'neg-grid'].forEach(gridId => {
+  ['pos-grid', 'neg-grid', 'third-grid'].forEach(gridId => {
     document.getElementById(gridId).addEventListener('click', e => {
       // Action buttons (move / delete)
       const actionBtn = e.target.closest('[data-action]');
       if (actionBtn) {
         e.stopPropagation();
-        const { action, fn, from, to, folder } = actionBtn.dataset;
-        if (action === 'move')   singleMove(fn, from, to);
+        const { action, fn, from, to, to1, to2, folder } = actionBtn.dataset;
+        if (action === 'move') singleMove(fn, from, to);
+        if (action === 'move-ternary') {
+          // 為三元分類顯示移動選項
+          const target = prompt(`移動到哪個類別？\n1. ${to1}\n2. ${to2}\n請輸入 1 或 2：`);
+          if (target === '1') singleMove(fn, from, to1);
+          else if (target === '2') singleMove(fn, from, to2);
+        }
         if (action === 'delete') singleDelete(fn, folder);
         return;
       }
@@ -610,7 +800,10 @@
 
       const fn     = card.dataset.filename;
       const folder = card.dataset.folder;
-      const side   = folder === posFolder ? 'pos' : 'neg';
+      let side;
+      if (folder === posFolder) side = 'pos';
+      else if (folder === negFolder) side = 'neg';
+      else side = 'third';
 
       if (showConf) {
         // Conf mode: checkbox area (top-left 36×36px) = select; image area = lightbox
@@ -659,9 +852,13 @@
   const dragOverlay = document.getElementById('drag-overlay');
   let drag = null;
 
-  ['pos-grid', 'neg-grid'].forEach(gridId => {
+  ['pos-grid', 'neg-grid', 'third-grid'].forEach(gridId => {
     const grid = document.getElementById(gridId);
-    const side = gridId === 'pos-grid' ? 'pos' : 'neg';
+    let side;
+    if (gridId === 'pos-grid') side = 'pos';
+    else if (gridId === 'neg-grid') side = 'neg';
+    else side = 'third';
+
     grid.addEventListener('mousedown', e => {
       if (e.button !== 0 || e.target.closest('.img-card') || e.target.closest('[data-action]')) return;
       e.preventDefault();
@@ -732,16 +929,37 @@
   // ── Bulk actions ──────────────────────────────────────────
 
   async function bulkMove(side) {
-    const from = side === 'pos' ? posFolder : negFolder;
-    const to   = side === 'pos' ? negFolder : posFolder;
+    let from, to;
+    if (ternaryMode) {
+      // 三元分類模式
+      if (side === 'pos') from = posFolder;
+      else if (side === 'neg') from = negFolder;
+      else from = thirdFolder;
+
+      const otherFolders = [posFolder, negFolder, thirdFolder].filter(f => f !== from);
+      const choice = prompt(`移動到哪個類別？\n1. ${otherFolders[0]}\n2. ${otherFolders[1]}\n請輸入 1 或 2：`);
+      if (choice === '1') to = otherFolders[0];
+      else if (choice === '2') to = otherFolders[1];
+      else return;
+    } else {
+      // 二元分類模式
+      from = side === 'pos' ? posFolder : negFolder;
+      to   = side === 'pos' ? negFolder : posFolder;
+    }
+
     const files = [...selected[side]]; if (!files.length) return;
     await apiMove(files, from, to);
     files.forEach(fn => { selected[side].delete(fn); removeCard(fn, from); addCardToGrid(fn, to, from); });
     adjustCount(from, -files.length); adjustCount(to, +files.length);
     updateSelectionBar(side);
   }
+
   async function bulkDelete(side) {
-    const folder = side === 'pos' ? posFolder : negFolder;
+    let folder;
+    if (side === 'pos') folder = posFolder;
+    else if (side === 'neg') folder = negFolder;
+    else folder = thirdFolder;
+
     const files  = [...selected[side]]; if (!files.length) return;
     if (!confirm(`確定要刪除 ${files.length} 張圖片？`)) return;
     await apiDelete(files, folder);
@@ -759,20 +977,45 @@
 
   function removeCard(fn, folder) {
     document.getElementById(`card-${folder}-${fn}`)?.remove();
-    const side = folder === posFolder ? 'pos' : 'neg';
+    let side;
+    if (folder === posFolder) side = 'pos';
+    else if (folder === negFolder) side = 'neg';
+    else side = 'third';
     selected[side].delete(fn);
   }
+
   function addCardToGrid(fn, thisFolder, otherFolder) {
-    const side = thisFolder === posFolder ? 'pos' : 'neg';
+    let side;
+    if (thisFolder === posFolder) side = 'pos';
+    else if (thisFolder === negFolder) side = 'neg';
+    else side = 'third';
+
     const grid = document.getElementById(`${side}-grid`);
     grid.querySelector('.empty-state')?.remove();
-    const conf = confData[`${thisFolder}/${fn}`] ?? confData[`${otherFolder}/${fn}`] ?? null;
-    const tmp  = document.createElement('div');
-    tmp.innerHTML = makeCardHTML(fn, conf, thisFolder, otherFolder);
+
+    // Try to find confidence from any folder
+    const conf = confData[`${thisFolder}/${fn}`] ??
+                 confData[`${otherFolder}/${fn}`] ??
+                 confData[`${posFolder}/${fn}`] ??
+                 confData[`${negFolder}/${fn}`] ??
+                 confData[`${thirdFolder}/${fn}`] ?? null;
+
+    const tmp = document.createElement('div');
+    if (ternaryMode) {
+      const otherFolders = [posFolder, negFolder, thirdFolder].filter(f => f !== thisFolder);
+      tmp.innerHTML = makeCardHTMLTernary(fn, conf, thisFolder, otherFolders);
+    } else {
+      tmp.innerHTML = makeCardHTML(fn, conf, thisFolder, otherFolder);
+    }
     grid.appendChild(tmp.firstElementChild);
   }
+
   function adjustCount(folder, delta) {
-    const id = folder === posFolder ? 'pos-count' : 'neg-count';
+    let id;
+    if (folder === posFolder) id = 'pos-count';
+    else if (folder === negFolder) id = 'neg-count';
+    else id = 'third-count';
+
     const el = document.getElementById(id);
     el.textContent = Math.max(0, parseInt(el.textContent || '0') + delta);
   }
@@ -782,7 +1025,11 @@
   const lb = { folder: null, filename: null, images: [] };
 
   function openLightbox(folder, filename) {
-    const side    = folder === posFolder ? 'pos' : 'neg';
+    let side;
+    if (folder === posFolder) side = 'pos';
+    else if (folder === negFolder) side = 'neg';
+    else side = 'third';
+
     const grid    = document.getElementById(`${side}-grid`);
     lb.folder     = folder;
     lb.filename   = filename;
@@ -795,8 +1042,15 @@
     const { folder, filename, images } = lb;
     const idx   = images.indexOf(filename);
     const conf  = confData[`${folder}/${filename}`];
-    const other = folder === posFolder ? negFolder : posFolder;
-    const isPos = folder === posFolder;
+
+    let other, isPos;
+    if (ternaryMode) {
+      other = null; // Will show a menu instead
+      isPos = folder === posFolder;
+    } else {
+      other = folder === posFolder ? negFolder : posFolder;
+      isPos = folder === posFolder;
+    }
 
     document.getElementById('lb-img').src            = `/api/image/${folder}/${filename}`;
     document.getElementById('lb-filename').textContent = filename;
@@ -805,7 +1059,13 @@
     catEl.className    = `lb-category ${isPos ? 'pos' : 'neg'}`;
     document.getElementById('lb-conf').textContent    = conf != null ? `信心值：${(conf * 100).toFixed(2)}%` : '';
     document.getElementById('lb-counter').textContent = `${idx + 1} / ${images.length}`;
-    document.getElementById('lb-btn-move').textContent = `移到 ${other}`;
+
+    if (ternaryMode) {
+      document.getElementById('lb-btn-move').textContent = '移到另一類';
+    } else {
+      document.getElementById('lb-btn-move').textContent = `移到 ${other}`;
+    }
+
     document.getElementById('lb-prev').disabled = idx === 0;
     document.getElementById('lb-next').disabled = idx === images.length - 1;
   }
@@ -826,15 +1086,26 @@
   });
 
   async function lbMove() {
-    const other = lb.folder === posFolder ? negFolder : posFolder;
-    const fn    = lb.filename;
-    const from  = lb.folder;
+    const fn   = lb.filename;
+    const from = lb.folder;
+    let to;
+
+    if (ternaryMode) {
+      const otherFolders = [posFolder, negFolder, thirdFolder].filter(f => f !== from);
+      const choice = prompt(`移動到哪個類別？\n1. ${otherFolders[0]}\n2. ${otherFolders[1]}\n請輸入 1 或 2：`);
+      if (choice === '1') to = otherFolders[0];
+      else if (choice === '2') to = otherFolders[1];
+      else return;
+    } else {
+      to = lb.folder === posFolder ? negFolder : posFolder;
+    }
+
     // Advance to next before removing
     const nextIdx = lb.images.indexOf(fn) + 1;
     lb.images = lb.images.filter(f => f !== fn);
     lb.filename = lb.images[Math.min(nextIdx, lb.images.length - 1)] ?? null;
 
-    await singleMove(fn, from, other);
+    await singleMove(fn, from, to);
     if (lb.filename) { lb.folder = from; renderLightbox(); }
     else closeLightbox();
   }

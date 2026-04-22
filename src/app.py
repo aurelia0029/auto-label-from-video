@@ -17,6 +17,7 @@ from pathlib import Path
 
 import cv2
 import torch
+import yaml
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from PIL import Image
@@ -41,8 +42,10 @@ job: dict = {
     "progress": 0,
     "total": 0,
     "message": "",
+    "ternary_mode": False,
     "pos_folder": "positive",
     "neg_folder": "negative",
+    "folders": [],  # 用於三元或多元分類
 }
 
 _clip_model: CLIPModel | None = None
@@ -53,13 +56,19 @@ _conf: dict[str, float] = {}   # "folder/filename" -> positive probability
 # ── Request schemas ────────────────────────────────────────
 class RunConfig(BaseModel):
     video_path: str
-    positive_label: str
-    negative_labels: list[str]
+    # 二元分類
+    positive_label: str = ""
+    negative_labels: list[str] = []
     positive_folder: str = "positive"
     negative_folder: str = "negative"
+    confidence_threshold: float = 0.55
+    # 三元分類
+    ternary_mode: bool = False
+    ternary_labels: list[str] = []
+    ternary_folders: list[str] = []
+    # 共用參數
     frame_interval: int = 10
     max_frames: int = 200
-    confidence_threshold: float = 0.55
 
 
 class MoveRequest(BaseModel):
@@ -116,13 +125,28 @@ def _run_pipeline(cfg: RunConfig) -> None:
         cap.release()
 
         # ── Step 2: Classify ────────────────────────────────
-        job.update(status="classifying", progress=0, total=len(saved),
-                   message="載入 CLIP 模型...",
-                   pos_folder=cfg.positive_folder,
-                   neg_folder=cfg.negative_folder)
+        if cfg.ternary_mode:
+            # 三元分類模式
+            folders = cfg.ternary_folders
+            labels = cfg.ternary_labels
+            job.update(status="classifying", progress=0, total=len(saved),
+                       message="載入 CLIP 模型...",
+                       ternary_mode=True,
+                       folders=folders)
+        else:
+            # 二元分類模式
+            folders = [cfg.positive_folder, cfg.negative_folder]
+            labels = [cfg.positive_label] + cfg.negative_labels
+            job.update(status="classifying", progress=0, total=len(saved),
+                       message="載入 CLIP 模型...",
+                       ternary_mode=False,
+                       pos_folder=cfg.positive_folder,
+                       neg_folder=cfg.negative_folder,
+                       folders=folders)
+
         _conf.clear()
 
-        for folder in [cfg.positive_folder, cfg.negative_folder]:
+        for folder in folders:
             p = OUTPUT_DIR / folder
             if p.exists():
                 shutil.rmtree(p)
@@ -133,8 +157,6 @@ def _run_pipeline(cfg: RunConfig) -> None:
             _clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
             _clip_model.eval()
 
-        labels = [cfg.positive_label] + cfg.negative_labels
-
         for i, img_path in enumerate(saved, 1):
             image  = Image.open(img_path).convert("RGB")
             inputs = _clip_processor(
@@ -142,13 +164,22 @@ def _run_pipeline(cfg: RunConfig) -> None:
             )
             with torch.no_grad():
                 outputs = _clip_model(**inputs)
-            probs    = outputs.logits_per_image.softmax(dim=1)
-            pos_prob = probs[0][0].item()
+            probs = outputs.logits_per_image.softmax(dim=1)[0]
 
-            target = cfg.positive_folder if pos_prob >= cfg.confidence_threshold \
-                     else cfg.negative_folder
+            if cfg.ternary_mode:
+                # 三元分類：選擇概率最高的類別
+                max_idx = probs.argmax().item()
+                target = folders[max_idx]
+                confidence = probs[max_idx].item()
+            else:
+                # 二元分類：使用閾值
+                pos_prob = probs[0].item()
+                target = cfg.positive_folder if pos_prob >= cfg.confidence_threshold \
+                         else cfg.negative_folder
+                confidence = pos_prob
+
             shutil.copy2(img_path, OUTPUT_DIR / target / img_path.name)
-            _conf[f"{target}/{img_path.name}"] = round(pos_prob, 4)
+            _conf[f"{target}/{img_path.name}"] = round(confidence, 4)
 
             job["progress"] = i
             job["message"]  = f"分類中... {i} / {len(saved)}"
@@ -201,12 +232,25 @@ async def get_results():
             if f.suffix.lower() in {".jpg", ".png"}
         ]
 
-    pos = job.get("pos_folder", "positive")
-    neg = job.get("neg_folder", "negative")
-    return {
-        "positive": {"folder": pos, "images": list_images(pos)},
-        "negative": {"folder": neg, "images": list_images(neg)},
-    }
+    if job.get("ternary_mode", False):
+        # 三元分類模式
+        folders = job.get("folders", [])
+        return {
+            "ternary_mode": True,
+            "categories": [
+                {"folder": folder, "images": list_images(folder)}
+                for folder in folders
+            ]
+        }
+    else:
+        # 二元分類模式
+        pos = job.get("pos_folder", "positive")
+        neg = job.get("neg_folder", "negative")
+        return {
+            "ternary_mode": False,
+            "positive": {"folder": pos, "images": list_images(pos)},
+            "negative": {"folder": neg, "images": list_images(neg)},
+        }
 
 
 @app.get("/api/image/{folder}/{filename}")
@@ -239,12 +283,16 @@ async def delete_image(req: DeleteRequest):
 
 @app.get("/api/download")
 async def download_results():
-    pos = job.get("pos_folder", "positive")
-    neg = job.get("neg_folder", "negative")
+    if job.get("ternary_mode", False):
+        folders = job.get("folders", [])
+    else:
+        pos = job.get("pos_folder", "positive")
+        neg = job.get("neg_folder", "negative")
+        folders = [pos, neg]
 
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for folder_name in [pos, neg]:
+        for folder_name in folders:
             folder_path = OUTPUT_DIR / folder_name
             if not folder_path.exists():
                 continue

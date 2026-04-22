@@ -23,14 +23,14 @@ classification:
   # 分類結果的輸出根目錄
   output_dir: "data/labeled_output"
 
+  # 二元分類設定（Binary Classification）
   # CLIP 文字描述：positive = 你「想找」的類別
   positive_label: "a person wearing red clothes"
 
   # CLIP 文字描述：干擾項（可填多個，幫助模型排除不相關類別）
   negative_labels:
-    - "a person not wearing red clothes"
-    - "a red object or vehicle"
-    - "a street background"
+    - "no person"
+    - "other"
 
   # 兩個輸出子資料夾的名稱
   positive_folder: "red"
@@ -38,3 +38,14 @@ classification:
 
   # positive_label 的機率須超過此門檻才算命中（建議 0.5 ~ 0.7）
   confidence_threshold: 0.55
+
+  # 三元分類設定（Ternary Classification）
+  ternary_mode: false  # 設為 true 啟用三元分類
+  ternary_labels:
+    - "a person wearing red clothes."
+    - "no person"
+    - "other"
+  ternary_folders:
+    - "red_person"
+    - "no_person"
+    - "other"
